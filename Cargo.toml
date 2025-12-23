@@ -1,0 +1,7 @@
+[package]
+name = "purple-garden-rs"
+version = "0.1.0"
+description = "Rust port of a Lean scripting language, designed and implemented with a focus on performance and a low memory profile "
+edition = "2024"
+
+[dependencies]
