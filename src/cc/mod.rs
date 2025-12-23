@@ -74,7 +74,12 @@ impl<'cc> Cc<'cc> {
                         idx: self.ctx.intern(Const::Str(inner)),
                     }),
                     Type::Double(inner) => {
-                        let bits = inner.parse::<f64>().unwrap().to_bits();
+                        let bits = inner
+                            .parse::<f64>()
+                            .map_err(|msg: std::num::ParseFloatError| {
+                                PgError::with_msg(msg.to_string(), &ast.token)
+                            })?
+                            .to_bits();
                         self.buf.push(Op::LoadG {
                             dst: 0,
                             idx: self.ctx.intern(Const::Double(bits)),
