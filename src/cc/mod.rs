@@ -68,14 +68,13 @@ impl<'cc> Cc<'cc> {
     /// compile is a simple wrapper around self.cc to make sure all registers are deallocated after
     /// their lifetime ends
     fn compile(&mut self, ast: Node<'cc>) -> Result<(), PgError> {
-        if let Some(register) = self.cc(ast)? {
-            self.register.free(register);
-        }
+        let register = self.cc(ast)?;
+        self.register.free(register);
 
         Ok(())
     }
 
-    pub fn cc(&mut self, ast: Node<'cc>) -> Result<Option<u8>, PgError> {
+    pub fn cc(&mut self, ast: Node<'cc>) -> Result<u8, PgError> {
         Ok(match ast.inner {
             InnerNode::Atom => {
                 let constant = match &ast.token.t {
@@ -88,7 +87,7 @@ impl<'cc> Cc<'cc> {
                         self.buf.push(Op::LoadI { dst: r, value });
 
                         // early bail, since we do LoadG for the other values
-                        return Ok(Some(r));
+                        return Ok(r);
                     }
                     Type::Double(s) => Const::Double(
                         s.parse::<f64>()
@@ -105,7 +104,7 @@ impl<'cc> Cc<'cc> {
                     ),
                 };
 
-                Some(self.load_const(constant))
+                self.load_const(constant)
             }
             InnerNode::Ident => {
                 let Type::Ident(name) = ast.token.t else {
@@ -114,7 +113,27 @@ impl<'cc> Cc<'cc> {
                 let r = self.register.alloc();
                 let hash = self.hash(name);
                 self.buf.push(Op::LoadV { dst: r, hash });
-                Some(r)
+                r
+            }
+            InnerNode::Bin { lhs, rhs } => {
+                let lhs = self.cc(*lhs)?;
+                let rhs = self.cc(*rhs)?;
+
+                let dst = self.register.alloc();
+                self.buf.push(match ast.token.t {
+                    Type::Plus => Op::Add { dst, lhs, rhs },
+                    Type::Minus => Op::Sub { dst, lhs, rhs },
+                    Type::Asteriks => Op::Mul { dst, lhs, rhs },
+                    Type::Slash => Op::Div { dst, lhs, rhs },
+                    Type::LessThan => Op::Lt { dst, lhs, rhs },
+                    Type::GreaterThan => Op::Gt { dst, lhs, rhs },
+                    Type::Equal => Op::Eq { dst, lhs, rhs },
+                    _ => unreachable!(),
+                });
+
+                self.register.free(lhs);
+                self.register.free(rhs);
+                dst
             }
             _ => todo!("{:?}", ast),
         })
@@ -141,14 +160,14 @@ mod cc {
         op::Op,
     };
 
-    // macro_rules! node {
-    //     ($expr:expr) => {
-    //         Node {
-    //             token: token!(Type::String("hola")),
-    //             inner: $expr,
-    //         }
-    //     };
-    // }
+    macro_rules! node {
+        ($token:expr, $inner:expr) => {
+            Node {
+                token: $token,
+                inner: $inner,
+            }
+        };
+    }
 
     macro_rules! token {
         ($expr:expr) => {
@@ -267,5 +286,48 @@ mod cc {
         let _ = cc.compile(ast).expect("Failed to compile node");
         let expected_idx: usize = 2;
         assert_eq!(cc.buf, vec![Op::LoadV { dst: 0, hash }],);
+    }
+
+    #[test]
+    fn atom_bin() {
+        use crate::lex::Type::*;
+        use crate::op::Op::*;
+
+        let tests: Vec<(Type, fn(u8, u8, u8) -> Op<'static>)> = vec![
+            (Plus, |dst, lhs, rhs| Add { dst, lhs, rhs }),
+            (Minus, |dst, lhs, rhs| Sub { dst, lhs, rhs }),
+            (Asteriks, |dst, lhs, rhs| Mul { dst, lhs, rhs }),
+            (Slash, |dst, lhs, rhs| Div { dst, lhs, rhs }),
+            (Equal, |dst, lhs, rhs| Eq { dst, lhs, rhs }),
+            (LessThan, |dst, lhs, rhs| Lt { dst, lhs, rhs }),
+            (GreaterThan, |dst, lhs, rhs| Gt { dst, lhs, rhs }),
+        ];
+
+        for (token_type, make_op) in tests {
+            let mut cc = Cc::new();
+
+            let ast = Node {
+                token: token!(token_type.clone()),
+                inner: InnerNode::Bin {
+                    lhs: Box::new(node!(token!(Type::Integer("45")), InnerNode::Atom)),
+                    rhs: Box::new(node!(token!(Type::Integer("45")), InnerNode::Atom)),
+                },
+            };
+
+            let _ = cc.compile(ast).expect("Failed to compile node");
+
+            let expected_op = make_op(2, 0, 1);
+
+            assert_eq!(
+                cc.buf,
+                vec![
+                    Op::LoadI { dst: 0, value: 45 },
+                    Op::LoadI { dst: 1, value: 45 },
+                    expected_op,
+                ],
+                "Failed for operator: {:?}",
+                token_type
+            );
+        }
     }
 }
