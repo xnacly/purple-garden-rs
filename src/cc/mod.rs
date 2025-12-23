@@ -75,6 +75,9 @@ impl<'cc> Cc<'cc> {
     }
 
     pub fn cc(&mut self, ast: Node<'cc>) -> Result<u8, PgError> {
+        #[cfg(feature = "trace")]
+        println!("Cc::cc({:?})", &ast.token.t);
+
         Ok(match ast.inner {
             InnerNode::Atom => {
                 let constant = match &ast.token.t {
@@ -289,7 +292,7 @@ mod cc {
     }
 
     #[test]
-    fn atom_bin() {
+    fn bin() {
         use crate::lex::Type::*;
         use crate::op::Op::*;
 
@@ -313,11 +316,8 @@ mod cc {
                     rhs: Box::new(node!(token!(Type::Integer("45")), InnerNode::Atom)),
                 },
             };
-
             let _ = cc.compile(ast).expect("Failed to compile node");
-
             let expected_op = make_op(2, 0, 1);
-
             assert_eq!(
                 cc.buf,
                 vec![
@@ -329,5 +329,54 @@ mod cc {
                 token_type
             );
         }
+    }
+
+    #[test]
+    fn bin_nested() {
+        let ast = Node {
+            token: token!(Type::Asteriks),
+            inner: InnerNode::Bin {
+                lhs: Box::new(node!(
+                    token!(Type::Plus),
+                    InnerNode::Bin {
+                        lhs: Box::new(node!(token!(Type::Integer("2")), InnerNode::Atom)),
+                        rhs: Box::new(node!(token!(Type::Integer("3")), InnerNode::Atom)),
+                    }
+                )),
+                rhs: Box::new(node!(
+                    token!(Type::Minus),
+                    InnerNode::Bin {
+                        lhs: Box::new(node!(token!(Type::Integer("4")), InnerNode::Atom)),
+                        rhs: Box::new(node!(token!(Type::Integer("1")), InnerNode::Atom)),
+                    }
+                )),
+            },
+        };
+        let mut cc = Cc::new();
+        let _ = cc.compile(ast).expect("Failed to compile node");
+        assert_eq!(
+            cc.buf,
+            vec![
+                Op::LoadI { dst: 0, value: 2 },
+                Op::LoadI { dst: 1, value: 3 },
+                Op::Add {
+                    dst: 2,
+                    lhs: 0,
+                    rhs: 1,
+                },
+                Op::LoadI { dst: 1, value: 4 },
+                Op::LoadI { dst: 0, value: 1 },
+                Op::Sub {
+                    dst: 3,
+                    lhs: 1,
+                    rhs: 0,
+                },
+                Op::Mul {
+                    dst: 0,
+                    lhs: 2,
+                    rhs: 3,
+                },
+            ]
+        )
     }
 }

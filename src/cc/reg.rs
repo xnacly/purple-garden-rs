@@ -16,12 +16,16 @@ impl RegisterAllocator {
     }
 
     pub fn alloc(&mut self) -> u8 {
+        #[cfg(feature = "trace")]
+        println!("RegisterAllocator::alloc(r{:?})", self.free.last().unwrap());
         self.free.pop().unwrap_or_else(|| {
             panic!("RegisterAllocator: out of registers, do open a bug report please")
         })
     }
 
     pub fn free(&mut self, r: u8) {
+        #[cfg(feature = "trace")]
+        println!("RegisterAllocator::free(r{r})");
         self.free.push(r);
     }
 }
