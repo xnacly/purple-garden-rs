@@ -1,7 +1,14 @@
-use std::collections::HashMap;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    num,
+};
+
+mod ctx;
+mod reg;
 
 use crate::{
     ast::{InnerNode, Node},
+    cc::{ctx::Context, reg::RegisterAllocator},
     err::PgError,
     lex::Type,
     op::Op,
@@ -18,29 +25,12 @@ pub enum Const<'c> {
     Str(&'c str),
 }
 
-#[derive(Debug, Default)]
-pub struct Context<'ctx> {
-    globals: HashMap<Const<'ctx>, usize>,
-    globals_vec: Vec<Const<'ctx>>,
-}
-
-impl<'ctx> Context<'ctx> {
-    pub fn intern(&mut self, constant: Const<'ctx>) -> u32 {
-        if let Some(&idx) = self.globals.get(&constant) {
-            return idx as u32;
-        }
-
-        let idx = self.globals_vec.len();
-        self.globals_vec.push(constant);
-        self.globals.insert(constant, idx);
-        idx as u32
-    }
-}
-
 #[derive(Debug)]
 pub struct Cc<'cc> {
     buf: Vec<Op<'cc>>,
     ctx: Context<'cc>,
+    register: RegisterAllocator,
+    hasher: DefaultHasher,
 }
 
 impl<'cc> Cc<'cc> {
@@ -53,60 +43,81 @@ impl<'cc> Cc<'cc> {
                 ctx.intern(Const::True);
                 ctx
             },
+            register: RegisterAllocator::new(),
+            hasher: DefaultHasher::new(),
         }
     }
 
     pub const GLOBAL_FALSE: u32 = 0;
     pub const GLOBAL_TRUE: u32 = 1;
 
-    pub fn compile(&mut self, ast: Node<'cc>) -> Result<(), PgError> {
-        match ast.inner {
-            InnerNode::Atom => {
-                match &ast.token.t {
-                    Type::Integer(inner) => self.buf.push(Op::LoadI {
-                        dst: 0,
-                        value: inner.parse().map_err(|msg: std::num::ParseIntError| {
-                            PgError::with_msg(msg.to_string(), &ast.token)
-                        })?,
-                    }),
-                    Type::String(inner) => self.buf.push(Op::LoadG {
-                        dst: 0,
-                        idx: self.ctx.intern(Const::Str(inner)),
-                    }),
-                    Type::Double(inner) => {
-                        let bits = inner
-                            .parse::<f64>()
-                            .map_err(|msg: std::num::ParseFloatError| {
-                                PgError::with_msg(msg.to_string(), &ast.token)
-                            })?
-                            .to_bits();
-                        self.buf.push(Op::LoadG {
-                            dst: 0,
-                            idx: self.ctx.intern(Const::Double(bits)),
-                        })
-                    }
-                    Type::True => {
-                        let idx = Self::GLOBAL_TRUE;
-                        self.buf.push(Op::LoadG { dst: 0, idx });
-                    }
-                    Type::False => {
-                        let idx = Self::GLOBAL_FALSE;
-                        self.buf.push(Op::LoadG { dst: 0, idx });
-                    }
-                    _ => unreachable!(),
-                };
-            }
-            InnerNode::Ident => {}
-            InnerNode::Bin { lhs, rhs } => {}
-            InnerNode::Array { members } => {}
-            InnerNode::Object { pairs } => {}
-            InnerNode::Let { rhs } => {}
-            InnerNode::Fn { args, body } => {}
-            InnerNode::Match { cases, default } => {}
-            InnerNode::Call { args } => {}
-            InnerNode::Path { members, leaf } => {}
-        };
+    fn load_const(&mut self, c: Const<'cc>) -> u8 {
+        let r = self.register.alloc();
+        self.buf.push(Op::LoadG {
+            dst: r,
+            idx: self.ctx.intern(c),
+        });
+        r
+    }
+
+    fn hash(&mut self, to_hash: impl Hash) -> u64 {
+        to_hash.hash(&mut self.hasher);
+        self.hasher.finish()
+    }
+
+    /// compile is a simple wrapper around self.cc to make sure all registers are deallocated after
+    /// their lifetime ends
+    fn compile(&mut self, ast: Node<'cc>) -> Result<(), PgError> {
+        if let Some(register) = self.cc(ast)? {
+            self.register.free(register);
+        }
+
         Ok(())
+    }
+
+    pub fn cc(&mut self, ast: Node<'cc>) -> Result<Option<u8>, PgError> {
+        Ok(match ast.inner {
+            InnerNode::Atom => {
+                let constant = match &ast.token.t {
+                    Type::Integer(s) => {
+                        let value = s.parse().map_err(|e: num::ParseIntError| {
+                            PgError::with_msg(e.to_string(), &ast.token)
+                        })?;
+
+                        let r = self.register.alloc();
+                        self.buf.push(Op::LoadI { dst: r, value });
+
+                        // early bail, since we do LoadG for the other values
+                        return Ok(Some(r));
+                    }
+                    Type::Double(s) => Const::Double(
+                        s.parse::<f64>()
+                            .map_err(|e: num::ParseFloatError| {
+                                PgError::with_msg(e.to_string(), &ast.token)
+                            })?
+                            .to_bits(),
+                    ),
+                    Type::String(s) => Const::Str(s),
+                    Type::True => Const::True,
+                    Type::False => Const::False,
+                    _ => unreachable!(
+                        "This is considered an impossible path, InnerNode::Atom can only have Type::{{Integer, Double, String, True, False}}"
+                    ),
+                };
+
+                Some(self.load_const(constant))
+            }
+            InnerNode::Ident => {
+                let Type::Ident(name) = ast.token.t else {
+                    unreachable!("InnerNode::Ident");
+                };
+                let r = self.register.alloc();
+                let hash = self.hash(name);
+                self.buf.push(Op::LoadV { dst: r, hash });
+                Some(r)
+            }
+            _ => todo!("{:?}", ast),
+        })
     }
 
     pub fn finalize(self) -> Vm<'cc> {
@@ -121,6 +132,8 @@ impl<'cc> Cc<'cc> {
 
 #[cfg(test)]
 mod cc {
+    use std::hash::{Hash, Hasher};
+
     use crate::{
         ast::{InnerNode, Node},
         cc::{Cc, Const},
@@ -128,14 +141,14 @@ mod cc {
         op::Op,
     };
 
-    macro_rules! node {
-        ($expr:expr) => {
-            Node {
-                token: token!(Type::String("hola")),
-                inner: $expr,
-            }
-        };
-    }
+    // macro_rules! node {
+    //     ($expr:expr) => {
+    //         Node {
+    //             token: token!(Type::String("hola")),
+    //             inner: $expr,
+    //         }
+    //     };
+    // }
 
     macro_rules! token {
         ($expr:expr) => {
@@ -238,5 +251,21 @@ mod cc {
             cc.ctx.globals_vec[expected_idx],
             Const::Double((3.1415_f64).to_bits())
         );
+    }
+
+    #[test]
+    fn atom_ident() {
+        let mut cc = Cc::new();
+        let name = "thisisavariablename";
+        let ast = Node {
+            token: token!(Type::Ident(name)),
+            inner: InnerNode::Ident,
+        };
+        let mut s = std::hash::DefaultHasher::new();
+        name.hash(&mut s);
+        let hash = s.finish();
+        let _ = cc.compile(ast).expect("Failed to compile node");
+        let expected_idx: usize = 2;
+        assert_eq!(cc.buf, vec![Op::LoadV { dst: 0, hash }],);
     }
 }

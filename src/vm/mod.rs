@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 mod value;
 
+pub const REGISTER_COUNT: usize = 32;
+
 use crate::op::Op;
 pub use crate::vm::value::Value;
 
@@ -14,7 +16,7 @@ pub struct Frame<'frame> {
 
 #[derive(Default, Debug)]
 pub struct Vm<'vm> {
-    pub registers: [Option<Value<'vm>>; 32],
+    pub registers: [Option<Value<'vm>>; REGISTER_COUNT],
     pub pc: usize,
     pub frame: Frame<'vm>,
     pub bytecode: Vec<Op<'vm>>,

@@ -1,5 +1,6 @@
 use crate::lex::Token;
 
+#[derive(Debug)]
 pub enum InnerNode<'inner> {
     /// inner value is encoded in super::Node::token
     Atom,
@@ -67,6 +68,7 @@ pub enum InnerNode<'inner> {
     },
 }
 
+#[derive(Debug)]
 pub struct Node<'node> {
     pub token: Token<'node>,
     pub inner: InnerNode<'node>,
