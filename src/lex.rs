@@ -33,6 +33,7 @@ pub enum Type<'t> {
 pub struct Token<'t> {
     pub line: usize,
     pub col: usize,
+    pub hash: Option<usize>,
     pub t: Type<'t>,
 }
 

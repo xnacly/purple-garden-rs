@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{Todo, gc::Gc};
 
+#[derive(Debug)]
 pub enum Value {
     Int(i64),
     Double(f64),

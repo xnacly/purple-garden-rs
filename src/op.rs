@@ -1,6 +1,6 @@
 use crate::{cc::Cc, vm::BuiltinFn};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Op<'vm> {
     /// Binary operations: lhs = lhs <op> rhs
     Add {
@@ -96,7 +96,7 @@ pub enum Op<'vm> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum New {
     Object,
     Array,

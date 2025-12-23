@@ -3,6 +3,7 @@ use crate::{
     lex::{Token, Type},
 };
 
+#[derive(Debug)]
 pub struct PgError {
     msg: Option<String>,
     line: usize,
