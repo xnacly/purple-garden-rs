@@ -1,7 +1,6 @@
-use crate::op::Op;
+#![allow(dead_code, unused_variables)]
 
-/// this is used to display static variables and functions in the standard libary in disassembly
-static STATIC_BASE: u8 = 0;
+use crate::op::Op;
 
 mod ast;
 mod cc;
@@ -32,8 +31,12 @@ fn main() {
     let bytecode: Vec<Op> = vec![
         Op::LoadI { dst: 0, value: 10 },
         Op::LoadI { dst: 1, value: 32 },
-        Op::Add { lhs: 0, rhs: 1 },
-        Op::Var {
+        Op::Add {
+            dst: 0,
+            lhs: 0,
+            rhs: 1,
+        },
+        Op::Let {
             hash: 0x123,
             src: 0,
         },
@@ -41,7 +44,7 @@ fn main() {
             hash: 0x123,
             dst: 2,
         },
-        Op::LoadG { dst: 3, idx: 1 },
+        Op::LoadG { dst: 0, idx: 1 },
         Op::Call {
             func: 1,
             args_start: 0,
@@ -55,9 +58,7 @@ fn main() {
         Op::Ret { times: 1 },
     ];
 
-    Op::disassemble(
-        &STATIC_BASE as *const u8 as usize,
-        &cc::Cc::new(),
-        &bytecode,
-    );
+    for (i, op) in bytecode.iter().enumerate() {
+        println!("{:04} {:?}", i, op)
+    }
 }

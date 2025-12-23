@@ -1,33 +1,41 @@
-use crate::{cc::Cc, vm::BuiltinFn};
+use crate::vm::BuiltinFn;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
+#[allow(unpredictable_function_pointer_comparisons)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum Op<'vm> {
-    /// Binary operations: lhs = lhs <op> rhs
     Add {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
     Sub {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
     Mul {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
     Div {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
     Eq {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
     Lt {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
     Gt {
+        dst: u8,
         lhs: u8,
         rhs: u8,
     },
@@ -47,7 +55,7 @@ pub enum Op<'vm> {
         dst: u8,
         value: u32,
     },
-    Var {
+    Let {
         hash: u64,
         src: u8,
     },
@@ -100,70 +108,4 @@ pub enum Op<'vm> {
 pub enum New {
     Object,
     Array,
-}
-
-impl<'vm> Op<'vm> {
-    pub fn disassemble(base: usize, cc: &Cc, bytecode: &[Op<'vm>]) {
-        for (pc, op) in bytecode.iter().enumerate() {
-            print!("{:04}: ", pc);
-            match op {
-                Op::Add { lhs, rhs } => println!("ADD r{}, r{}", lhs, rhs),
-                Op::Sub { lhs, rhs } => println!("SUB r{}, r{}", lhs, rhs),
-                Op::Mul { lhs, rhs } => println!("MUL r{}, r{}", lhs, rhs),
-                Op::Div { lhs, rhs } => println!("DIV r{}, r{}", lhs, rhs),
-                Op::Eq { lhs, rhs } => println!("EQ r{}, r{}", lhs, rhs),
-                Op::Lt { lhs, rhs } => println!("LT r{}, r{}", lhs, rhs),
-                Op::Gt { lhs, rhs } => println!("GT r{}, r{}", lhs, rhs),
-                Op::Mov { dst, src } => println!("MOV r{}, r{}", dst, src),
-                Op::LoadI { dst, value } => println!("LOADI r{}, {}", dst, value),
-                Op::LoadG { dst, idx } => println!("LOADG r{}, global[{}]", dst, idx),
-                Op::Size { dst, value } => println!("SIZE r{}, {}", dst, value),
-                Op::Var { hash, src } => println!("VAR hash={} r{}", hash, src),
-                Op::LoadV { hash, dst } => println!("LOADV r{} hash={}", dst, hash),
-                Op::New {
-                    dst,
-                    size,
-                    new_type,
-                } => {
-                    println!("NEW r{} {:?}[size={}]", dst, new_type, size);
-                }
-                Op::Append { container, src } => println!("APPEND r{} r{}", container, src),
-                Op::Len { dst, src } => println!("LEN r{} r{}", dst, src),
-                Op::Idx {
-                    dst,
-                    container,
-                    index,
-                } => {
-                    println!("IDX   r{} r{}[r{}]", dst, container, index)
-                }
-                Op::Jmp { target } => println!("JMP {}", target),
-                Op::JmpF { cond, target } => println!("JMPF r{} {}", cond, target),
-                Op::Call {
-                    func,
-                    args_start,
-                    args_len,
-                } => {
-                    println!(
-                        "CALL {} r{}..r{}",
-                        func,
-                        args_start,
-                        args_start + args_len - 1
-                    );
-                }
-                Op::Ret { times } => println!("RET *{}", times),
-                Op::Sys {
-                    ptr,
-                    args_start,
-                    args_len,
-                } => {
-                    println!(
-                        "SYS 0x{} r{}..r{}",
-                        *ptr as usize - base,
-                        args_start,
-                        args_start + args_len - 1
-                    )
-                }
-            }
-        }
-    }
 }

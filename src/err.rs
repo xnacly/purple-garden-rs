@@ -48,4 +48,10 @@ impl PgError {
             self.end
         );
     }
+
+    pub fn with_msg(msg: impl Into<String>, from: impl Into<PgError>) -> Self {
+        let mut conv = from.into();
+        conv.msg = Some(msg.into());
+        conv
+    }
 }
